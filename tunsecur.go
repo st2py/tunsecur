@@ -10,35 +10,35 @@ import (
 
 func main() {
 	var genKey bool
-	flag.BoolVar(&genKey, "g", false, "Generate RSA key files")
+	flag.BoolVar(&genKey, "gen", false, "Generate RSA key files")
 	var bits int
-	flag.IntVar(&bits, "b", 2048, "RSA key length, only valid for 1024, 2048, 4096")
+	flag.IntVar(&bits, "bit", 2048, "RSA key length, only valid for 1024, 2048, 4096")
 	var keyPath string
-	flag.StringVar(&keyPath, "p", "", "RSA key files directory path")
+	flag.StringVar(&keyPath, "dir", "", "RSA key files directory path")
 
 	var dtl int
-	flag.IntVar(&dtl, "d", 1, "Logs, 1 for error, 2 for warn, 4 for info")
+	flag.IntVar(&dtl, "log", 1, "Log levels, error 1, warn 2, info 4")
 
 	var tc bool
-	flag.BoolVar(&tc, "c", false, "Tunnel client")
+	flag.BoolVar(&tc, "tc", false, "Tunnel client")
 	var listenHost string
-	flag.StringVar(&listenHost, "l", "0.0.0.0:3257", "Listen port")
+	flag.StringVar(&listenHost, "lp", "0.0.0.0:19919", "Listen port")
 
 	var ts bool
-	flag.BoolVar(&ts, "s", false, "Tunnel server")
+	flag.BoolVar(&ts, "ts", false, "Tunnel server")
 	var remoteHost string
-	flag.StringVar(&remoteHost, "r", "", "Remote host and port")
+	flag.StringVar(&remoteHost, "remote", "", "Remote host:port")
 	var passWord string
-	flag.StringVar(&passWord, "W", "", "Tunnel password")
+	flag.StringVar(&passWord, "passwd", "", "Tunnel password for client and server")
 	var pubFile string
-	flag.StringVar(&pubFile, "P", "", "RSA public key file")
+	flag.StringVar(&pubFile, "pub", "", "Tunnel client RSA public key file")
 	var privFile string
-	flag.StringVar(&privFile, "S", "", "RSA secret key file")
+	flag.StringVar(&privFile, "priv", "", "Tunnel server RSA private key file")
 
 	var tcp bool
-	flag.BoolVar(&tcp, "T", false, "TCP Tunnel")
+	flag.BoolVar(&tcp, "tcp", false, "TCP Tunnel")
 	var udp bool
-	flag.BoolVar(&udp, "U", false, "UDP Tunnel")
+	flag.BoolVar(&udp, "udp", false, "UDP Tunnel")
 
 	flag.Parse()
 
@@ -63,44 +63,48 @@ func main() {
 
 	if tc || ts {
 		if remoteHost == "" {
-			LogFatal(cfg, "-r must be set")
+			LogFatal(cfg, "missing -remote for -tc or -ts")
 		}
 
 		if !tcp && !udp {
-			LogFatal(cfg, "-T or -U must be set")
+			LogFatal(cfg, "missing -tcp or -udp for -tc or -ts")
 		}
 
 		if tc && passWord == "" && pubFile == "" {
-			LogFatal(cfg, "-W or -P must be set for tunnel client")
+			LogFatal(cfg, "missing -passwd or -pub for -tc")
 		}
 
 		if ts && passWord == "" && privFile == "" {
-			LogFatal(cfg, "-W or -S must be set for tunnel server")
+			LogFatal(cfg, "missing -passwd or -priv for -ts")
 		}
 	}
 
 	if genKey == true {
 		if bits != 1024 && bits != 2048 && bits != 4096 && bits != 8192 {
-			LogFatal(cfg, "Error: -b only valid for 1024 2048 4096")
+			LogFatal(cfg, "-bit only valid for 1024 2048 4096")
 		}
 
 		if keyPath == "" {
 			keyPath = filepath.Join(absPath, "keys")
 		} else {
 			if !IsDirExist(keyPath) {
-				LogFatal(cfg, "Error: path ", keyPath, " isn't exist")
+				LogFatal(cfg, "path ", keyPath, " isn't exist")
 			}
 		}
 
-		LogInfo(cfg, "RSA key length", bits)
-		LogInfo(cfg, "Directory at", keyPath)
+		cfg.dtlLogs |= 7
+		LogInfo(cfg, "RSA key length ", bits)
+		LogInfo(cfg, "Directory at ", keyPath)
+		// cfg.dtlLogs &= ^4
 		err := RsaGenKey(keyPath, bits)
 		if err != nil {
-			LogInfo(cfg, err.Error())
-			LogFatal(cfg, "Error: generate RSA key failed")
+			LogWarn(cfg, err.Error())
+			LogFatal(cfg, "generate RSA key failed")
 		}
+
+		// cfg.dtlLogs |= 6
 		LogInfo(cfg, "Generate RSA key OK")
-		LogWarn(cfg, "Please backup your RSA key files carefully")
+		LogWarn(cfg, "Backup your RSA key files!")
 	} else if tc || ts {
 		if tc {
 			cfg.rsaFile = pubFile
