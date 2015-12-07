@@ -7,7 +7,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 )
@@ -47,7 +46,7 @@ func RsaGenKey(filePath string, bits int) error {
 	privPath := filepath.Join(filePath, "private.pem")
 	pubfPath := filepath.Join(filePath, "public.pem")
 	if IsFileExist(privPath) || IsFileExist(pubfPath) {
-		log.Println("Error: files already exist at:", filePath)
+		LogWarn(g_cfg, "key files exist at: ", filePath)
 		return errors.New("RSA key files already exist")
 	}
 
@@ -63,7 +62,7 @@ func RsaGenKey(filePath string, bits int) error {
 	}
 	file, err := os.Create(privPath)
 	if err != nil {
-		log.Println("Error: create ", privPath, " failed")
+		LogWarn(g_cfg, "create ", privPath, " failed")
 		return err
 	}
 	defer file.Close()
@@ -86,7 +85,7 @@ func RsaGenKey(filePath string, bits int) error {
 	}
 	file, err = os.Create(pubfPath)
 	if err != nil {
-		log.Println("Error: create ", pubfPath, " failed")
+		LogWarn(g_cfg, "create ", pubfPath, " failed")
 		return err
 	}
 	defer file.Close()

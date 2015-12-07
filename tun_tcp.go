@@ -170,23 +170,23 @@ func TcpKeySend(conn *net.TCPConn, cfg *TunCfg) (s1, s2 cipher.Stream, err error
 		return nil, nil, err
 	}
 	s1 = cipher.NewCTR(b1, msg.V1[:])
-	//	log.Println("SKey:", msg.K1)
-	//	log.Println("SIVT:", msg.V1)
+	//  LogInfo(g_cfg, "SKey: ", msg.K1)
+	//	LogInfo(g_cfg, "SIVT: ", msg.V1)
 
 	b2, err := aes.NewCipher(msg.K2[:])
 	if err != nil {
 		return nil, nil, err
 	}
 	s2 = cipher.NewCTR(b2, msg.V2[:])
-	//	log.Println("RKey:", msg.K2)
-	//	log.Println("RIVT:", msg.V2)
+	//	LogInfo(g_cfg, "RKey: ", msg.K2)
+	//	LogInfo(g_cfg, "RIVT: ", msg.V2)
 
 	kk := KeyMsg2Bytes(msg)
 	if kk == nil {
 		return nil, nil, errors.New("KeyMsg2Bytes failed")
 	}
-	log.Println("SZ:", len(kk))
-	log.Println("KK:", kk)
+	LogInfo(g_cfg, "SZ: ", len(kk))
+	LogInfo(g_cfg, "KK: ", kk)
 
 	if cfg.passWord != "" || cfg.rsaFile != "" {
 		kk, err = EncDecKey(kk, cfg)
@@ -226,8 +226,8 @@ func TcpKeyRecv(conn *net.TCPConn, cfg *TunCfg) (s1, s2 cipher.Stream, err error
 			return nil, nil, err
 		}
 	}
-	log.Println("SZ:", len(kk))
-	log.Println("KK:", kk)
+	LogInfo(g_cfg, "SZ: ", len(kk))
+	LogInfo(g_cfg, "KK: ", kk)
 
 	msg := Bytes2KeyMsg(kk)
 	if msg == nil {
@@ -241,16 +241,16 @@ func TcpKeyRecv(conn *net.TCPConn, cfg *TunCfg) (s1, s2 cipher.Stream, err error
 		return nil, nil, err
 	}
 	s1 = cipher.NewCTR(b1, msg.V1[:])
-	//	log.Println("SKey:", msg.K1)
-	//	log.Println("SIVT:", msg.V1)
+	//	LogInfo(g_cfg, "SKey: ", msg.K1)
+	//	LogInfo(g_cfg, "SIVT: ", msg.V1)
 
 	b2, err := aes.NewCipher(msg.K2[:])
 	if err != nil {
 		return nil, nil, err
 	}
 	s2 = cipher.NewCTR(b2, msg.V2[:])
-	//	log.Println("RKey:", msg.K2)
-	//	log.Println("RIVT:", msg.V2)
+	//	LogInfo(g_cfg, "RKey: ", msg.K2)
+	//	LogInfo(g_cfg, "RIVT: ", msg.V2)
 
 	return s1, s2, nil
 }
@@ -275,7 +275,7 @@ func TcpClient(lc *net.TCPConn, cfg *TunCfg) error {
 
 	conn, err := net.Dial("tcp4", cfg.remoteHost)
 	if err != nil {
-		log.Println(err)
+		LogWarn(g_cfg, err.Error())
 		return err
 	}
 
@@ -284,7 +284,7 @@ func TcpClient(lc *net.TCPConn, cfg *TunCfg) error {
 	if cfg.tunFlag { // Tun server
 		s1, s2, err := TcpKeyRecv(lc, cfg)
 		if err != nil {
-			log.Println(err)
+			LogWarn(g_cfg, err.Error())
 			return err
 		}
 
@@ -293,7 +293,7 @@ func TcpClient(lc *net.TCPConn, cfg *TunCfg) error {
 	} else { // Tun Client
 		s1, s2, err := TcpKeySend(rc, cfg)
 		if err != nil {
-			log.Println(err)
+			LogWarn(g_cfg, err.Error())
 			return err
 		}
 
@@ -305,16 +305,16 @@ func TcpClient(lc *net.TCPConn, cfg *TunCfg) error {
 }
 
 func TcpServer(cfg *TunCfg) error {
-	log.Println("listenHost:", cfg.listenHost)
-	log.Println("remoteHost:", cfg.remoteHost)
-	log.Println("passWord:", cfg.passWord)
-	log.Println("rsaFile:", cfg.rsaFile)
-	log.Println("tunFlag:", cfg.tunFlag)
+	LogInfo(g_cfg, "listenHost: ", cfg.listenHost)
+	LogInfo(g_cfg, "remoteHost: ", cfg.remoteHost)
+	LogInfo(g_cfg, "passWord: ", cfg.passWord)
+	LogInfo(g_cfg, "rsaFile: ", cfg.rsaFile)
+	LogInfo(g_cfg, "tunFlag: ", cfg.tunFlag)
 
 	// Listen on TCP
 	l, err := net.Listen("tcp4", cfg.listenHost)
 	if err != nil {
-		log.Fatal(err)
+		LogFatal(g_cfg, err.Error())
 	}
 	defer l.Close()
 
@@ -322,7 +322,8 @@ func TcpServer(cfg *TunCfg) error {
 		// Wait for a connection.
 		conn, err := l.Accept()
 		if err != nil {
-			log.Println(err)
+			LogWarn(g_cfg, err.Error())
+			continue
 		}
 		// Handle the connection in a new goroutine.
 		// The loop then returns to accepting, so that
