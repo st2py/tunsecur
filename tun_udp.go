@@ -154,6 +154,7 @@ func Lc2RcPipe(source *UdpChn, dest *net.UDPConn, s *cipher.Stream, flag int) {
 // flag 1 - encrypt, 2 - decrypt
 func Rc2LcPipe(source *net.UDPConn, dest *UdpChn, s *cipher.Stream, flag int) {
 	buf := make([]byte, BUF_LEN)
+	source.SetDeadline(time.Now().Add(time.Second * 15))
 	nn, _, err := source.ReadFromUDP(buf)
 	if err != nil {
 		LogWarn(g_cfg, "Rc2LcPipe:", err.Error())
@@ -203,11 +204,11 @@ func HandleChn(chn *UdpChn) error {
 	}
 
 	if chn.cfg.tunFlag {
-		go Lc2RcPipe(chn, chn.rc, chn.s1, 2)
-		Rc2LcPipe(chn.rc, chn, chn.s2, 1)
+		go Rc2LcPipe(chn.rc, chn, chn.s2, 1)
+		Lc2RcPipe(chn, chn.rc, chn.s1, 2)
 	} else {
-		go Lc2RcPipe(chn, chn.rc, chn.s1, 1)
-		Rc2LcPipe(chn.rc, chn, chn.s2, 2)
+		go Rc2LcPipe(chn.rc, chn, chn.s2, 2)
+		Lc2RcPipe(chn, chn.rc, chn.s1, 1)
 	}
 
 	return nil
