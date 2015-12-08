@@ -1,23 +1,47 @@
 package main
 
 import (
+	"bytes"
 	"flag"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 )
 
+const TUN_FLG = 0x23571719
+
+type TunCfg struct {
+	listenHost string
+	remoteHost string
+	passWord   string
+	rsaFile    string
+	dtlLogs    int
+	tunFlag    bool // false for tun client, true for tun server
+	aesType    int  // ctr - 1, cfb - 2, ofb - 4
+	aesBits    int  // 16, 24, 32
+
+	nBuf    bytes.Buffer
+	wBuf    bytes.Buffer
+	eBuf    bytes.Buffer
+	nLogger *log.Logger
+	wLogger *log.Logger
+	eLogger *log.Logger
+}
+
+var g_cfg *TunCfg
+
 func main() {
 	var genKey bool
 	flag.BoolVar(&genKey, "gen", false, "Generate RSA key files")
 	var bits int
-	flag.IntVar(&bits, "bit", 2048, "RSA key length, only valid for 1024, 2048, 4096")
+	flag.IntVar(&bits, "bit", 2048, "RSA key length, only valid: 1024, 2048, 4096")
 	var keyPath string
 	flag.StringVar(&keyPath, "dir", "", "RSA key files directory path")
 
 	var dtl int
-	flag.IntVar(&dtl, "log", 1, "Log levels, error 1, warn 2, info 4")
+	flag.IntVar(&dtl, "log", 1, "Log bits, error 1, warn 2, info 4")
 
 	var tc bool
 	flag.BoolVar(&tc, "tc", false, "Tunnel client")
@@ -35,6 +59,11 @@ func main() {
 	var privFile string
 	flag.StringVar(&privFile, "priv", "", "Tunnel server RSA private key file")
 
+	var aesType string
+	flag.StringVar(&aesType, "aes", "ctr", "AES type, only valid: ctr, cfb, ofb")
+	var aesBits int
+	flag.IntVar(&aesBits, "len", 16, "AES key len, only valid: 16, 24, 32")
+
 	var tcp bool
 	flag.BoolVar(&tcp, "tcp", false, "TCP Tunnel")
 	var udp bool
@@ -50,6 +79,12 @@ func main() {
 	cfg.dtlLogs = dtl
 	LogInit(cfg)
 
+	if cfg.dtlLogs < 0 {
+		cfg.dtlLogs = 1
+	} else if cfg.dtlLogs > 7 {
+		cfg.dtlLogs = 7
+	}
+
 	relFile, _ := exec.LookPath(os.Args[0])
 	selfName := filepath.Base(relFile)
 	absFile, _ := filepath.Abs(relFile)
@@ -63,25 +98,33 @@ func main() {
 
 	if tc || ts {
 		if remoteHost == "" {
-			LogFatal(cfg, "missing -remote for -tc or -ts")
+			LogFatal(cfg, "-remote missing for -tc or -ts")
+		}
+
+		if aesType != "ctr" && aesType != "cfb" && aesType != "ofb" {
+			LogFatal(cfg, "-aes invalid, only valid: ctr, cfb, ofb")
+		}
+
+		if aesBits != 16 && aesBits != 24 && aesBits != 32 {
+			LogFatal(cfg, "-len invalid, only valid: 16, 24, 32")
 		}
 
 		if !tcp && !udp {
-			LogFatal(cfg, "missing -tcp or -udp for -tc or -ts")
+			LogFatal(cfg, "-tcp or -udp missing for -tc or -ts")
 		}
 
 		if tc && passWord == "" && pubFile == "" {
-			LogFatal(cfg, "missing -passwd or -pub for -tc")
+			LogFatal(cfg, "-passwd or -pub missing for -tc")
 		}
 
 		if ts && passWord == "" && privFile == "" {
-			LogFatal(cfg, "missing -passwd or -priv for -ts")
+			LogFatal(cfg, "-passwd or -priv missing for -ts")
 		}
 	}
 
 	if genKey == true {
 		if bits != 1024 && bits != 2048 && bits != 4096 && bits != 8192 {
-			LogFatal(cfg, "-bit only valid for 1024 2048 4096")
+			LogFatal(cfg, "-bit invalid, only valid: 1024, 2048, 4096")
 		}
 
 		if keyPath == "" {
@@ -106,6 +149,16 @@ func main() {
 		LogInfo(cfg, "Generate RSA key OK")
 		LogWarn(cfg, "Backup your RSA key files!")
 	} else if tc || ts {
+		cfg.aesBits = aesBits
+		switch aesType {
+		case "ctr":
+			cfg.aesType = 1
+		case "cfb":
+			cfg.aesType = 2
+		case "ofb":
+			cfg.aesType = 4
+		}
+
 		if tc {
 			cfg.rsaFile = pubFile
 			cfg.tunFlag = false

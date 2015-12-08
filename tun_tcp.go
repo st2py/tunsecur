@@ -1,189 +1,24 @@
 package main
 
 import (
-	"bytes"
-	"crypto/aes"
 	"crypto/cipher"
-	"crypto/rand"
-	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"io"
-	"log"
 	"net"
 )
 
-const AES_LEN = 16
-const TUN_FLG = 0x23571719
-
-type TunCfg struct {
-	listenHost string
-	remoteHost string
-	passWord   string
-	rsaFile    string
-	dtlLogs    int
-	tunFlag    bool // false for tun client, true for tun server
-
-	nBuf    bytes.Buffer
-	wBuf    bytes.Buffer
-	eBuf    bytes.Buffer
-	nLogger *log.Logger
-	wLogger *log.Logger
-	eLogger *log.Logger
-}
-
-var g_cfg *TunCfg
-
-// 96 bytes
-type KeyMsg struct {
-	R1   [12]byte // random for security
-	Flag uint32   // TUN_FLG
-	K1   [AES_LEN]byte
-	V1   [aes.BlockSize]byte
-	K2   [AES_LEN]byte
-	V2   [aes.BlockSize]byte
-	R2   [16]byte // random for security
-}
-
-func KeyMsg2Bytes(msg *KeyMsg) []byte {
-	buf := new(bytes.Buffer)
-	err := binary.Write(buf, binary.LittleEndian, msg)
-	if err != nil {
-		return nil
-	}
-
-	return buf.Bytes()
-}
-
-func Bytes2KeyMsg(b []byte) *KeyMsg {
-	msg := new(KeyMsg)
-	buf := bytes.NewReader(b)
-	err := binary.Read(buf, binary.LittleEndian, msg)
-	if err != nil {
-		return nil
-	}
-	return msg
-}
-
-func AesEncDec(data, key, iv []byte) ([]byte, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-
-	stream := cipher.NewCTR(block, iv)
-	stream.XORKeyStream(data, data)
-	return data, nil
-}
-
-func GenAesKey() (*KeyMsg, error) {
-	msg := new(KeyMsg)
-	msg.Flag = TUN_FLG
-	if _, err := io.ReadFull(rand.Reader, msg.R1[:]); err != nil {
-		return nil, err
-	}
-	if _, err := io.ReadFull(rand.Reader, msg.R2[:]); err != nil {
-		return nil, err
-	}
-	if _, err := io.ReadFull(rand.Reader, msg.K1[:]); err != nil {
-		return nil, err
-	}
-	if _, err := io.ReadFull(rand.Reader, msg.V1[:]); err != nil {
-		return nil, err
-	}
-
-	if _, err := io.ReadFull(rand.Reader, msg.K2[:]); err != nil {
-		return nil, err
-	}
-	if _, err := io.ReadFull(rand.Reader, msg.V2[:]); err != nil {
-		return nil, err
-	}
-
-	return msg, nil
-}
-
-func RsaEncKey(kk []byte, cfg *TunCfg) ([]byte, error) {
-	publicKey := RsaReadKey(cfg.rsaFile)
-	if publicKey == nil {
-		return nil, errors.New("RsaReadKey failed")
-	}
-
-	k1, err := RsaEncrypt(publicKey, kk)
-	if err != nil {
-		return nil, err
-	}
-
-	return k1, nil
-}
-
-func RsaDecKey(kk []byte, cfg *TunCfg) ([]byte, error) {
-	privateKey := RsaReadKey(cfg.rsaFile)
-	if privateKey == nil {
-		return nil, errors.New("RsaReadKey failed")
-	}
-
-	k1, err := RsaDecrypt(privateKey, kk)
-	if err != nil {
-		return nil, err
-	}
-
-	return k1, nil
-}
-
-func EncDecKey(kk []byte, cfg *TunCfg) ([]byte, error) {
-	if cfg.passWord != "" {
-		h1 := sha256.New()
-		io.WriteString(h1, "St2Py")
-		io.WriteString(h1, cfg.passWord)
-		io.WriteString(h1, "TunSecur")
-		key := h1.Sum(nil)
-
-		h1 = sha256.New()
-		io.WriteString(h1, "St2Py")
-		io.WriteString(h1, cfg.passWord)
-		io.WriteString(h1, "TunSecur")
-		ivt := h1.Sum(key)
-
-		k1, err := AesEncDec(kk, key[:16], ivt[:aes.BlockSize])
-		if err != nil {
-			return nil, err
-		}
-
-		return k1, nil
-	} else {
-		if cfg.tunFlag {
-			return RsaDecKey(kk, cfg)
-		} else {
-			return RsaEncKey(kk, cfg)
-		}
-	}
-}
-
-// send aes-128-ctr key and iv
+// send KeySeed
 func TcpKeySend(conn *net.TCPConn, cfg *TunCfg) (s1, s2 cipher.Stream, err error) {
-	msg, err := GenAesKey()
+	var seed *KeySeed
+	seed, s1, s2, err = GenAesKey(nil, cfg)
 	if err != nil {
 		return nil, nil, err
 	}
-	b1, err := aes.NewCipher(msg.K1[:])
-	if err != nil {
-		return nil, nil, err
-	}
-	s1 = cipher.NewCTR(b1, msg.V1[:])
-	//  LogInfo(g_cfg, "SKey: ", msg.K1)
-	//	LogInfo(g_cfg, "SIVT: ", msg.V1)
 
-	b2, err := aes.NewCipher(msg.K2[:])
-	if err != nil {
-		return nil, nil, err
-	}
-	s2 = cipher.NewCTR(b2, msg.V2[:])
-	//	LogInfo(g_cfg, "RKey: ", msg.K2)
-	//	LogInfo(g_cfg, "RIVT: ", msg.V2)
-
-	kk := KeyMsg2Bytes(msg)
+	kk := KeySeed2Bytes(seed)
 	if kk == nil {
-		return nil, nil, errors.New("KeyMsg2Bytes failed")
+		return nil, nil, errors.New("KeySeed2Bytes failed")
 	}
 	LogInfo(g_cfg, "SZ: ", len(kk))
 	LogInfo(g_cfg, "KK: ", kk)
@@ -202,11 +37,11 @@ func TcpKeySend(conn *net.TCPConn, cfg *TunCfg) (s1, s2 cipher.Stream, err error
 	return s1, s2, nil
 }
 
-// recv aes-128-ctr key and iv
+// recv KeySeed
 func TcpKeyRecv(conn *net.TCPConn, cfg *TunCfg) (s1, s2 cipher.Stream, err error) {
 	var sz int
 	if cfg.passWord != "" {
-		sz = binary.Size(KeyMsg{})
+		sz = binary.Size(KeySeed{})
 	} else {
 		sz, err = RsaPrivateSize(cfg.rsaFile)
 		if err != nil {
@@ -229,28 +64,17 @@ func TcpKeyRecv(conn *net.TCPConn, cfg *TunCfg) (s1, s2 cipher.Stream, err error
 	LogInfo(g_cfg, "SZ: ", len(kk))
 	LogInfo(g_cfg, "KK: ", kk)
 
-	msg := Bytes2KeyMsg(kk)
-	if msg == nil {
-		return nil, nil, errors.New("Bytes2KeyMsg failed")
-	} else if msg.Flag != TUN_FLG {
+	seed := Bytes2KeySeed(kk)
+	if seed == nil {
+		return nil, nil, errors.New("Bytes2KeySeed failed")
+	} else if seed.Flag != TUN_FLG {
 		return nil, nil, errors.New("TUN_FLG check failed")
 	}
 
-	b1, err := aes.NewCipher(msg.K1[:])
+	_, s1, s2, err = GenAesKey(seed, cfg)
 	if err != nil {
 		return nil, nil, err
 	}
-	s1 = cipher.NewCTR(b1, msg.V1[:])
-	//	LogInfo(g_cfg, "SKey: ", msg.K1)
-	//	LogInfo(g_cfg, "SIVT: ", msg.V1)
-
-	b2, err := aes.NewCipher(msg.K2[:])
-	if err != nil {
-		return nil, nil, err
-	}
-	s2 = cipher.NewCTR(b2, msg.V2[:])
-	//	LogInfo(g_cfg, "RKey: ", msg.K2)
-	//	LogInfo(g_cfg, "RIVT: ", msg.V2)
 
 	return s1, s2, nil
 }

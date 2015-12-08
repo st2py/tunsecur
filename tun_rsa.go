@@ -187,3 +187,31 @@ func RsaPrivateSize(fileName string) (int, error) {
 	k := (priv.N.BitLen() + 7) / 8 // RSA Len / 8
 	return k, nil
 }
+
+func RsaEncKey(kk []byte, cfg *TunCfg) ([]byte, error) {
+	publicKey := RsaReadKey(cfg.rsaFile)
+	if publicKey == nil {
+		return nil, errors.New("RsaReadKey failed")
+	}
+
+	k1, err := RsaEncrypt(publicKey, kk)
+	if err != nil {
+		return nil, err
+	}
+
+	return k1, nil
+}
+
+func RsaDecKey(kk []byte, cfg *TunCfg) ([]byte, error) {
+	privateKey := RsaReadKey(cfg.rsaFile)
+	if privateKey == nil {
+		return nil, errors.New("RsaReadKey failed")
+	}
+
+	k1, err := RsaDecrypt(privateKey, kk)
+	if err != nil {
+		return nil, err
+	}
+
+	return k1, nil
+}

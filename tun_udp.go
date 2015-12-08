@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/aes"
 	"crypto/cipher"
 	"encoding/binary"
 	"errors"
@@ -30,28 +29,21 @@ type UdpChn struct {
 func ChnKeySend(chn *UdpChn) error {
 	conn := chn.rc
 	cfg := chn.cfg
-	msg, err := GenAesKey()
-	if err != nil {
-		return err
-	}
-	b1, err := aes.NewCipher(msg.K1[:])
-	if err != nil {
-		return err
-	}
-	s1 := cipher.NewCTR(b1, msg.V1[:])
 
-	b2, err := aes.NewCipher(msg.K2[:])
+	var seed *KeySeed
+	var s1, s2 cipher.Stream
+	var err error
+	seed, s1, s2, err = GenAesKey(nil, cfg)
 	if err != nil {
 		return err
 	}
-	s2 := cipher.NewCTR(b2, msg.V2[:])
 
-	kk := KeyMsg2Bytes(msg)
+	kk := KeySeed2Bytes(seed)
 	if kk == nil {
 		return errors.New("KeyMsg2Bytes failed")
 	}
-	//	LogInfo(cfg, "SZ:", len(kk))
-	//	LogInfo(cfg, "KK:", kk)
+	LogInfo(cfg, "SZ: ", len(kk))
+	LogInfo(cfg, "KK: ", kk)
 
 	if cfg.passWord != "" || cfg.rsaFile != "" {
 		kk, err = EncDecKey(kk, cfg)
@@ -75,7 +67,7 @@ func ChnKeyRecv(chn *UdpChn) error {
 	var sz int
 	var err error
 	if cfg.passWord != "" {
-		sz = binary.Size(KeyMsg{})
+		sz = binary.Size(KeySeed{})
 	} else {
 		sz, err = RsaPrivateSize(cfg.rsaFile)
 		if err != nil {
@@ -101,27 +93,21 @@ func ChnKeyRecv(chn *UdpChn) error {
 			return err
 		}
 	}
-	//	LogInfo(cfg, "SZ:", len(kk))
-	//	LogInfo(cfg, "KK:", kk)
+	LogInfo(cfg, "SZ: ", len(kk))
+	LogInfo(cfg, "KK: ", kk)
 
-	msg := Bytes2KeyMsg(kk)
-	if msg == nil {
-		return errors.New("Bytes2KeyMsg failed")
-	} else if msg.Flag != TUN_FLG {
+	seed := Bytes2KeySeed(kk)
+	if seed == nil {
+		return errors.New("Bytes2KeySeed failed")
+	} else if seed.Flag != TUN_FLG {
 		return errors.New("TUN_FLG check failed")
 	}
 
-	b1, err := aes.NewCipher(msg.K1[:])
+	var s1, s2 cipher.Stream
+	_, s1, s2, err = GenAesKey(seed, cfg)
 	if err != nil {
 		return err
 	}
-	s1 := cipher.NewCTR(b1, msg.V1[:])
-
-	b2, err := aes.NewCipher(msg.K2[:])
-	if err != nil {
-		return err
-	}
-	s2 := cipher.NewCTR(b2, msg.V2[:])
 
 	chn.s1 = &s1
 	chn.s2 = &s2
